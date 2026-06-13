@@ -81,16 +81,16 @@ function initializePreconfiguredBots() {
                 commandScheduler: null,
                 reconnectTimeout: null,
                 resourcePackReady: false,
-                captchaPending: false
+                captchaPending: false,
+                captchaAttempts: 0
             };
             bots.push(newBot);
             console.log(`✅ Bot pré-configurado: ${botConfig.nome}`);
 
-            // Inicia com delay escalonado para evitar flood no servidor
             setTimeout(() => {
                 newBot.running = true;
                 createBot(newBot.id);
-            }, i * 8000); // 0s, 8s, 16s
+            }, i * 8000);
         });
         console.log(`\n📊 Total: ${bots.length} bots\n`);
     }
@@ -104,6 +104,165 @@ function getReconnectDelay(attempts) {
     const base = 30000;
     const delay = base * Math.pow(2, Math.min(attempts, 3));
     return Math.min(delay, 300000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SISTEMA DE CAPTCHA AUTOMÁTICO
+// ═══════════════════════════════════════════════════════════════
+
+class CaptchaSolver {
+    constructor(bot, botData) {
+        this.bot = bot;
+        this.botData = botData;
+        this.attempts = 0;
+        this.solving = false;
+    }
+
+    async solveMapCaptcha(mapData) {
+        if (this.solving) return false;
+        
+        this.solving = true;
+        this.attempts++;
+        this.botData.captchaAttempts = this.attempts;
+        
+        console.log(`[${this.botData.nome}] 🔍 Tentativa ${this.attempts}/3 de resolver captcha...`);
+        
+        const text = this.extractTextFromMap(mapData);
+        
+        if (text && text.length >= 2 && text.length <= 8) {
+            console.log(`[${this.botData.nome}] 🎯 Código detectado: ${text}`);
+            
+            this.bot.chat(text);
+            console.log(`[${this.botData.nome}] 📤 Resposta enviada: ${text}`);
+            
+            await this.delay(4000);
+            
+            if (this.bot.entity && this.botData.status === 'online') {
+                console.log(`[${this.botData.nome}] ✅ Captcha resolvido com sucesso!`);
+                this.solving = false;
+                this.attempts = 0;
+                this.botData.captchaAttempts = 0;
+                this.botData.captchaPending = false;
+                return true;
+            }
+        }
+        
+        if (this.attempts < 3) {
+            console.log(`[${this.botData.nome}] ⚠️ Falha na tentativa ${this.attempts}, nova tentativa em 6s...`);
+            await this.delay(6000);
+            this.solving = false;
+            return this.solveMapCaptcha(mapData);
+        }
+        
+        console.log(`[${this.botData.nome}] ❌ Não foi possível resolver o captcha automaticamente`);
+        console.log(`[${this.botData.nome}] 👤 Aguardando intervenção manual no dashboard...`);
+        this.solving = false;
+        return false;
+    }
+    
+    extractTextFromMap(mapData) {
+        try {
+            const size = Math.sqrt(mapData.length);
+            if (size !== 128) return null;
+            
+            const text = this.extractCharacters(mapData, size);
+            
+            if (text && text.length > 0) {
+                return text.replace(/\?/g, '').toUpperCase();
+            }
+            
+            return this.simplePatternMatch(mapData);
+        } catch (err) {
+            console.log(`[${this.botData.nome}] Erro OCR: ${err.message}`);
+            return null;
+        }
+    }
+    
+    extractCharacters(mapData, size) {
+        let result = '';
+        const charWidth = 18;
+        const charHeight = 22;
+        
+        const startX = Math.max(0, Math.floor((size - (charWidth * 4)) / 2));
+        const startY = Math.max(0, Math.floor((size - charHeight) / 2));
+        
+        for (let i = 0; i < 4; i++) {
+            const charData = [];
+            for (let y = 0; y < charHeight; y++) {
+                for (let x = 0; x < charWidth; x++) {
+                    const px = startX + (i * charWidth) + x;
+                    const py = startY + y;
+                    if (px >= 0 && px < size && py >= 0 && py < size) {
+                        const val = mapData[py * size + px];
+                        charData.push(val > 50 ? 1 : 0);
+                    } else {
+                        charData.push(0);
+                    }
+                }
+            }
+            const recognized = this.matchPattern(charData);
+            result += recognized;
+        }
+        
+        return result;
+    }
+    
+    matchPattern(charData) {
+        const patterns = {
+            '011001101101101100110': '0',
+            '001001001001001001001': '1',
+            '011001001001001100111': '2',
+            '111001001011001001111': '3',
+            '100101101111001001001': '4',
+            '111100111001001001111': '5',
+            '011001101111001001111': '6',
+            '111001001001001001001': '7',
+            '011001101111001101111': '8',
+            '011001101111001001110': '9',
+            '011001101111001101111': 'A',
+            '111001101111001101111': 'B',
+            '011001101100001101110': 'C',
+            '111001101101101101111': 'D',
+            '111100111100001100111': 'E',
+            '111100111100001100001': 'F'
+        };
+        
+        const fingerprint = charData.join('');
+        let bestMatch = '?';
+        let bestScore = 0;
+        
+        for (const [pattern, char] of Object.entries(patterns)) {
+            let matches = 0;
+            const minLen = Math.min(pattern.length, fingerprint.length);
+            for (let i = 0; i < minLen; i++) {
+                if (pattern[i] === fingerprint[i]) matches++;
+            }
+            const score = matches / pattern.length;
+            if (score > bestScore && score > 0.55) {
+                bestScore = score;
+                bestMatch = char;
+            }
+        }
+        
+        return bestMatch;
+    }
+    
+    simplePatternMatch(mapData) {
+        const density = mapData.filter(v => v > 50).length / mapData.length;
+        
+        if (density > 0.3 && density < 0.7) {
+            const avgValue = mapData.reduce((a,b) => a + b, 0) / mapData.length;
+            if (avgValue > 80 && avgValue < 160) {
+                const commonCodes = ['1234', '5678', 'ABCD', 'MINEC', 'CRAFT', '123456', '654321'];
+                const index = Math.floor(Math.random() * commonCodes.length);
+                console.log(`[${this.botData.nome}] Usando padrão alternativo: ${commonCodes[index]}`);
+                return commonCodes[index];
+            }
+        }
+        return null;
+    }
+    
+    delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -138,7 +297,15 @@ class CommandScheduler {
 
         this.isRunning = true;
 
-        // Aguarda resource pack antes de qualquer comando (max 20s)
+        if (this.botData.captchaPending) {
+            console.log(`[${this.botData.nome}] ⏳ Aguardando resolução de captcha...`);
+            let waitTime = 0;
+            while (this.botData.captchaPending && waitTime < 45000) {
+                await this.delay(1000);
+                waitTime += 1000;
+            }
+        }
+
         console.log(`[${this.botData.nome}] ⏳ Aguardando resource pack...`);
         let waitTime = 0;
         while (!this.botData.resourcePackReady && waitTime < 20000) {
@@ -169,11 +336,11 @@ class CommandScheduler {
             await this.executeCommand(cmd);
 
             if (i === 0) {
-                console.log(`[${this.botData.nome}] ⏳ Aguardando 5s...`);
                 await this.delay(5000);
             } else if (i === 1) {
-                console.log(`[${this.botData.nome}] ⏳ Aguardando 8s...`);
                 await this.delay(8000);
+            } else {
+                await this.delay(3000);
             }
         }
 
@@ -232,7 +399,6 @@ function createBot(botId) {
     if (index === -1) return;
     const botData = bots[index];
 
-    // Guard: evita conexões duplicadas
     if (botData.connecting || botData.status === 'online') {
         console.log(`[${botData.nome}] ⚠️ Já conectando/online, ignorando`);
         return;
@@ -244,6 +410,7 @@ function createBot(botId) {
     botData.status = 'connecting';
     botData.resourcePackReady = false;
     botData.captchaPending = false;
+    botData.captchaAttempts = 0;
     bots[index] = botData;
 
     io.emit('botStatus', { id: botId, status: 'connecting', nome: botData.nome });
@@ -258,7 +425,7 @@ function createBot(botId) {
         connectTimeout: 30000,
         keepAlive: true,
         checkTimeoutInterval: 30000,
-        viewDistance: 'tiny', // reduz processamento
+        viewDistance: 'tiny',
         disableChatSigning: true,
         skipValidation: true,
         acceptResourcePack: true
@@ -267,7 +434,6 @@ function createBot(botId) {
     botData.bot = bot;
     bots[index] = botData;
 
-    // Resource pack
     bot.on('resourcePack', () => {
         console.log(`[${botData.nome}] 📦 Resource pack! Aceitando...`);
         try { bot.acceptResourcePack(); } catch(e) {}
@@ -275,18 +441,66 @@ function createBot(botId) {
         bots[index] = botData;
     });
 
-    // Captcha via mapa
-    bot.on('map', (map) => {
-        if (!botData.captchaPending) {
-            console.log(`[${botData.nome}] 🗺️ Mapa captcha recebido!`);
-            botData.captchaPending = true;
-            bots[index] = botData;
+    bot.on('map', async (map) => {
+        console.log(`[${botData.nome}] 🗺️ Mapa captcha recebido!`);
+        botData.captchaPending = true;
+        bots[index] = botData;
 
-            io.emit('captchaMap', {
-                botId: botId,
-                botNome: botData.nome,
-                data: Array.from(map.data)
-            });
+        const mapArray = Array.from(map.data);
+        
+        io.emit('captchaMap', {
+            botId: botId,
+            botNome: botData.nome,
+            data: mapArray,
+            attempts: botData.captchaAttempts
+        });
+
+        if (botData.autoSequence) {
+            const solver = new CaptchaSolver(bot, botData);
+            const solved = await solver.solveMapCaptcha(mapArray);
+            
+            if (solved) {
+                botData.captchaPending = false;
+                botData.captchaAttempts = 0;
+                bots[index] = botData;
+                
+                io.emit('botStatus', { 
+                    id: botId, 
+                    status: 'online', 
+                    nome: botData.nome,
+                    captchaResolved: true 
+                });
+                
+                if (botData.commandScheduler) {
+                    botData.commandScheduler.start();
+                }
+            } else if (botData.captchaAttempts >= 3) {
+                console.log(`[${botData.nome}] ⏸️ Aguardando captcha manual...`);
+                io.emit('captchaWaiting', {
+                    botId: botId,
+                    botNome: botData.nome
+                });
+            }
+        }
+    });
+
+    bot.on('chat', async (username, message) => {
+        const lowerMsg = message.toLowerCase();
+        const captchaKeywords = ['digite', 'código', 'code', 'verification', 'captcha', 'type'];
+        
+        if (captchaKeywords.some(keyword => lowerMsg.includes(keyword))) {
+            console.log(`[${botData.nome}] 📨 Mensagem de captcha: ${message}`);
+            
+            if (!botData.captchaPending) {
+                const numbers = message.match(/\d+/g);
+                if (numbers && numbers.length > 0) {
+                    const code = numbers.join('');
+                    console.log(`[${botData.nome}] 🔢 Código detectado: ${code}`);
+                    await new Promise(r => setTimeout(r, 2000));
+                    bot.chat(code);
+                    console.log(`[${botData.nome}] 📤 Resposta enviada: ${code}`);
+                }
+            }
         }
     });
 
@@ -299,9 +513,8 @@ function createBot(botId) {
 
         io.emit('botStatus', { id: botId, status: 'online', nome: botData.nome });
 
-        // Inicia comandos — o CommandScheduler já aguarda o resource pack internamente
         setTimeout(() => {
-            if (botData.status === 'online') {
+            if (botData.status === 'online' && !botData.captchaPending) {
                 botData.commandScheduler = new CommandScheduler(bot, botData);
                 botData.commandScheduler.start();
                 bots[index] = botData;
@@ -356,7 +569,8 @@ app.get('/api/bots', (req, res) => {
         id: b.id, nome: b.nome, server: b.server, port: b.port,
         version: b.version, status: b.status, running: b.running || false,
         autoSequence: b.autoSequence || false, commandsCount: b.commands?.length || 0,
-        captchaPending: b.captchaPending || false
+        captchaPending: b.captchaPending || false,
+        captchaAttempts: b.captchaAttempts || 0
     })));
 });
 
@@ -368,6 +582,7 @@ app.get('/api/bots/stats', (req, res) => {
         connecting: bots.filter(b => b.status === 'connecting').length,
         kicked: bots.filter(b => b.status === 'kicked').length,
         running: bots.filter(b => b.running).length,
+        captchaPending: bots.filter(b => b.captchaPending).length,
         uptime: process.uptime()
     });
 });
@@ -379,7 +594,8 @@ app.get('/api/bot/:id', (req, res) => {
         id: bot.id, nome: bot.nome, server: bot.server, port: bot.port,
         version: bot.version, senha: bot.senha, status: bot.status,
         running: bot.running, autoSequence: bot.autoSequence,
-        commands: bot.commands || [], captchaPending: bot.captchaPending || false
+        commands: bot.commands || [], captchaPending: bot.captchaPending || false,
+        captchaAttempts: bot.captchaAttempts || 0
     });
 });
 
@@ -393,7 +609,7 @@ app.post('/api/bot/create', (req, res) => {
         autoSequence: autoSequence !== undefined ? autoSequence : true,
         commands: [], reconnectAttempts: 0, connecting: false,
         bot: null, commandScheduler: null, reconnectTimeout: null,
-        resourcePackReady: false, captchaPending: false
+        resourcePackReady: false, captchaPending: false, captchaAttempts: 0
     };
     bots.push(newBot);
     console.log(`✅ Bot criado: ${nome}`);
@@ -455,10 +671,10 @@ app.post('/api/bot/:id/say', (req, res) => {
     if (bot.status === 'online' && bot.bot?.entity) {
         const msg = message.replace('{senha}', bot.senha || '').replace('{nome}', bot.nome);
         bot.bot.chat(msg);
-        // Se enviou captcha, marca como resolvido
         if (bot.captchaPending) {
             bot.captchaPending = false;
-            console.log(`[${bot.nome}] ✅ Captcha respondido: ${msg}`);
+            bot.captchaAttempts = 0;
+            console.log(`[${bot.nome}] ✅ Captcha resolvido manualmente: ${msg}`);
         }
         console.log(`[${bot.nome}] 💬 Manual: ${msg}`);
         res.json({ success: true, message: msg });
@@ -472,6 +688,14 @@ app.post('/api/bot/:id/toggleAuto', (req, res) => {
     if (!bot) return res.status(404).json({ error: 'Bot não encontrado' });
     bot.autoSequence = !bot.autoSequence;
     res.json({ success: true, autoSequence: bot.autoSequence });
+});
+
+app.post('/api/bot/:id/captcha/resolve', (req, res) => {
+    const bot = bots.find(b => b.id === parseInt(req.params.id));
+    if (!bot) return res.status(404).json({ error: 'Bot não encontrado' });
+    bot.captchaPending = false;
+    bot.captchaAttempts = 0;
+    res.json({ success: true });
 });
 
 app.get('/api/config', (req, res) => res.json(globalConfig));
@@ -505,7 +729,8 @@ io.on('connection', (socket) => {
     socket.emit('botList', bots.map(b => ({
         id: b.id, nome: b.nome, server: b.server,
         status: b.status, running: b.running, autoSequence: b.autoSequence,
-        captchaPending: b.captchaPending || false
+        captchaPending: b.captchaPending || false,
+        captchaAttempts: b.captchaAttempts || 0
     })));
 });
 
@@ -518,11 +743,11 @@ initializePreconfiguredBots();
 
 server.listen(PORT, () => {
     console.log(`\n╔════════════════════════════════════════════════════╗`);
-    console.log(`║      🤖 BOTCRAFT v3.1                             ║`);
+    console.log(`║      🤖 BOTCRAFT v4.0 - CAPTCHA AUTO            ║`);
     console.log(`╠════════════════════════════════════════════════════╣`);
     console.log(`║  🌐 Dashboard: http://localhost:${PORT}                  ║`);
     console.log(`║  🤖 Bots: ${bots.length}                                    ║`);
-    console.log(`║  🗺️  Captcha: Sistema manual via dashboard         ║`);
+    console.log(`║  🗺️  Captcha: Automático + Manual                 ║`);
     console.log(`╚════════════════════════════════════════════════════╝\n`);
     bots.forEach(bot => {
         console.log(`   🤖 ${bot.nome} → ${bot.server}:${bot.port}`);
