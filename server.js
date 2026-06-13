@@ -102,10 +102,10 @@ function initializePreconfiguredBots() {
 // ═══════════════════════════════════════════════════════════════
 
 function getReconnectDelay(attempts) {
-    if (attempts === 1) return 10000;  // 10 segundos
-    if (attempts === 2) return 20000;  // 20 segundos
-    if (attempts === 3) return 30000;  // 30 segundos
-    return 60000; // 60 segundos máximo
+    if (attempts === 1) return 10000;
+    if (attempts === 2) return 20000;
+    if (attempts === 3) return 30000;
+    return 60000;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -120,27 +120,20 @@ class CaptchaSolver {
         this.solving = false;
     }
 
-    // Método RÁPIDO para resolver captcha (menos de 1 segundo)
     async solveMapCaptchaFast(mapData) {
         if (this.solving) return false;
         this.solving = true;
         
         console.log(`[${this.botData.nome}] ⚡ Tentativa RÁPIDA de resolver captcha...`);
         
-        // Método 1: Detectar números diretamente
         const text = this.extractTextFast(mapData);
         
         if (text && text.length >= 2 && text.length <= 8) {
             console.log(`[${this.botData.nome}] 🎯 Código detectado: ${text}`);
-            
-            // Envia o código IMEDIATAMENTE
             this.bot.chat(text);
             console.log(`[${this.botData.nome}] 📤 Resposta enviada: ${text}`);
-            
-            // Aguarda apenas 1 segundo para verificar
             await this.delay(1000);
             
-            // Verifica se ainda está no servidor (não foi kickado)
             if (this.bot.entity && this.botData.status === 'online') {
                 this.solving = false;
                 return true;
@@ -151,9 +144,7 @@ class CaptchaSolver {
         return false;
     }
     
-    // Método alternativo rápido
     async solveMapCaptchaAlt(mapData) {
-        // Método 2: Tentar códigos comuns rapidamente
         const commonCodes = ['1234', '5678', 'ABCD', '123456', '0000', '1111', '12345', '54321'];
         
         for (const code of commonCodes) {
@@ -167,7 +158,6 @@ class CaptchaSolver {
             }
         }
         
-        // Método 3: Detectar cor dominante do captcha
         const dominantColor = this.getDominantColor(mapData);
         if (dominantColor) {
             console.log(`[${this.botData.nome}] 🎨 Cor dominante detectada, tentando...`);
@@ -187,10 +177,7 @@ class CaptchaSolver {
             const size = Math.sqrt(mapData.length);
             if (size !== 128) return null;
             
-            // Análise rápida - procura por clusters de pixels
             let text = '';
-            
-            // Divide em 4 quadrantes (onde os números geralmente estão)
             const quadrants = this.getQuadrants(mapData, size);
             
             for (const quadrant of quadrants) {
@@ -203,7 +190,6 @@ class CaptchaSolver {
             if (text.length === 4) return text;
             if (text.length === 6) return text;
             
-            // Procura padrões de texto
             const patterns = this.findTextPatterns(mapData, size);
             if (patterns) return patterns;
             
@@ -241,11 +227,9 @@ class CaptchaSolver {
     }
     
     quickMatch(quadrant) {
-        // Calcula densidade de pixels
         const sum = quadrant.reduce((a, b) => a + b, 0);
         const density = sum / quadrant.length;
         
-        // Baseado na densidade, tenta adivinhar o número
         if (density > 0.45 && density < 0.55) return '0';
         if (density > 0.12 && density < 0.22) return '1';
         if (density > 0.35 && density < 0.45) return '2';
@@ -256,18 +240,11 @@ class CaptchaSolver {
         if (density > 0.2 && density < 0.3) return '7';
         if (density > 0.5 && density < 0.6) return '8';
         if (density > 0.4 && density < 0.5) return '9';
-        if (density > 0.55 && density < 0.65) return 'A';
-        if (density > 0.5 && density < 0.6) return 'B';
-        if (density > 0.45 && density < 0.55) return 'C';
-        if (density > 0.35 && density < 0.45) return 'D';
-        if (density > 0.4 && density < 0.5) return 'E';
-        if (density > 0.3 && density < 0.4) return 'F';
         
         return '?';
     }
     
     findTextPatterns(mapData, size) {
-        // Extrai uma assinatura simples do mapa
         let signature = '';
         const step = Math.floor(size / 8);
         for (let i = 0; i < 64; i++) {
@@ -277,26 +254,20 @@ class CaptchaSolver {
             signature += mapData[idx] > 100 ? '1' : '0';
         }
         
-        // Padrões comuns de captcha
         if (signature.includes('1110011100111')) return 'ABC';
         if (signature.includes('1100110011001')) return 'DEF';
         if (signature.includes('1011011011011')) return 'GHI';
-        if (signature.includes('1001100110011')) return 'JKL';
-        if (signature.includes('1110111011101')) return 'MNO';
-        if (signature.includes('0101010101010')) return 'PQR';
         
         return null;
     }
     
     getDominantColor(mapData) {
-        // Conta cores predominantes
         const colorCount = {};
         for (const val of mapData) {
             const color = Math.floor(val / 10);
             colorCount[color] = (colorCount[color] || 0) + 1;
         }
         
-        // Pega a cor mais comum (ignorando preto)
         let maxColor = null;
         let maxCount = 0;
         for (const [color, count] of Object.entries(colorCount)) {
@@ -494,7 +465,6 @@ function createBot(botId) {
     botData.bot = bot;
     bots[index] = botData;
 
-    // Heartbeat para não ser considerado idle
     let heartbeat = null;
 
     bot.on('resourcePack', () => {
@@ -596,7 +566,6 @@ function createBot(botId) {
 
         io.emit('botStatus', { id: botId, status: 'online', nome: botData.nome });
 
-        // Heartbeat para manter conexão ativa
         heartbeat = setInterval(() => {
             if (botData.status === 'online' && bot.entity) {
                 bot.setControlState('jump', true);
@@ -842,4 +811,14 @@ initializePreconfiguredBots();
 
 server.listen(PORT, () => {
     console.log(`\n╔════════════════════════════════════════════════════╗`);
-    console.log(`║      🤖 BOTCRAFT v4.0 - CAPTCHA AUTO RÁPIDO    
+    console.log(`║      🤖 BOTCRAFT v4.0 - CAPTCHA AUTO RÁPIDO     ║`);
+    console.log(`╠════════════════════════════════════════════════════╣`);
+    console.log(`║  🌐 Dashboard: http://localhost:${PORT}                  ║`);
+    console.log(`║  🤖 Bots: ${bots.length}                                    ║`);
+    console.log(`║  🗺️  Captcha: Automático + Manual                 ║`);
+    console.log(`╚════════════════════════════════════════════════════╝\n`);
+    bots.forEach(bot => {
+        console.log(`   🤖 ${bot.nome} → ${bot.server}:${bot.port}`);
+        console.log(`      📝 Comandos: ${bot.commands.join(' → ')}\n`);
+    });
+});
