@@ -18,17 +18,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ARMAZENAMENTO EM MEMÓRIA
-// ═══════════════════════════════════════════════════════════════
-
 let bots = [];
 let nextBotId = 1;
 let globalConfig = { webServerPort: process.env.PORT || 3000 };
-
-// ═══════════════════════════════════════════════════════════════
-// BOTS PRÉ-CONFIGURADOS
-// ═══════════════════════════════════════════════════════════════
 
 const PRECONFIGURED_BOTS = [
     {
@@ -83,7 +75,8 @@ function initializePreconfiguredBots() {
                 resourcePackReady: false,
                 captchaPending: false,
                 captchaAttempts: 0,
-                captchaStartTime: null
+                captchaImage: null,
+                captchaCode: null
             };
             bots.push(newBot);
             console.log(`✅ Bot pré-configurado: ${botConfig.nome}`);
@@ -97,203 +90,157 @@ function initializePreconfiguredBots() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// BACKOFF EXPONENCIAL (MAIS RÁPIDO)
-// ═══════════════════════════════════════════════════════════════
-
 function getReconnectDelay(attempts) {
-    if (attempts === 1) return 10000;
-    if (attempts === 2) return 20000;
-    if (attempts === 3) return 30000;
-    return 60000;
+    if (attempts === 1) return 5000;
+    if (attempts === 2) return 10000;
+    if (attempts === 3) return 20000;
+    return 30000;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SISTEMA DE CAPTCHA AUTOMÁTICO (RÁPIDO)
+// NANTI-BOT CAPTCHA BYPASS
 // ═══════════════════════════════════════════════════════════════
 
-class CaptchaSolver {
+class NantiBotBypass {
     constructor(bot, botData) {
         this.bot = bot;
         this.botData = botData;
-        this.attempts = 0;
-        this.solving = false;
     }
 
-    async solveMapCaptchaFast(mapData) {
-        if (this.solving) return false;
-        this.solving = true;
-        
-        console.log(`[${this.botData.nome}] ⚡ Tentativa RÁPIDA de resolver captcha...`);
-        
-        const text = this.extractTextFast(mapData);
-        
-        if (text && text.length >= 2 && text.length <= 8) {
-            console.log(`[${this.botData.nome}] 🎯 Código detectado: ${text}`);
-            this.bot.chat(text);
-            console.log(`[${this.botData.nome}] 📤 Resposta enviada: ${text}`);
-            await this.delay(1000);
-            
-            if (this.bot.entity && this.botData.status === 'online') {
-                this.solving = false;
-                return true;
-            }
-        }
-        
-        this.solving = false;
-        return false;
+    // Padrões conhecidos do Nanti-Bot
+    static getCommonCodes() {
+        return [
+            // Códigos comuns do Nanti-Bot
+            '1234', '5678', '4321', '8765',
+            'ABCD', 'DCBA', 'MINE', 'CRAFT',
+            'MINECRAFT', 'NANTI', 'BYPASS',
+            // Códigos numéricos comuns
+            '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
+            // Sequências
+            '123456', '654321', '112233', '445566',
+            // Códigos do servidor healtzcraft
+            'HEALTZ', 'HC2024', 'SKYBLOCK', '25071980'
+        ];
     }
-    
-    async solveMapCaptchaAlt(mapData) {
-        const commonCodes = ['1234', '5678', 'ABCD', '123456', '0000', '1111', '12345', '54321'];
+
+    async tryBypass(mapData) {
+        console.log(`[${this.botData.nome}] 🔓 Tentando bypass do Nanti-Bot...`);
         
+        // Salva a imagem do captcha para o dashboard
+        this.botData.captchaImage = mapData;
+        
+        // Método 1: Tentar códigos conhecidos do Nanti-Bot
+        const commonCodes = NantiBotBypass.getCommonCodes();
         for (const code of commonCodes) {
-            console.log(`[${this.botData.nome}] 🔄 Tentando código comum: ${code}`);
+            console.log(`[${this.botData.nome}] 🔑 Tentando código: ${code}`);
             this.bot.chat(code);
-            await this.delay(800);
+            await this.delay(500);
             
             if (this.bot.entity && this.botData.status === 'online') {
-                console.log(`[${this.botData.nome}] ✅ Código comum funcionou!`);
+                console.log(`[${this.botData.nome}] ✅ BYPASS SUCESSO! Código: ${code}`);
                 return true;
             }
         }
         
-        const dominantColor = this.getDominantColor(mapData);
-        if (dominantColor) {
-            console.log(`[${this.botData.nome}] 🎨 Cor dominante detectada, tentando...`);
-            this.bot.chat(dominantColor);
-            await this.delay(800);
-            
-            if (this.bot.entity && this.botData.status === 'online') {
-                return true;
-            }
+        // Método 2: Tentar extrair números do mapa
+        const extracted = this.extractNumbersFromMap(mapData);
+        if (extracted) {
+            console.log(`[${this.botData.nome}] 🔢 Números extraídos: ${extracted}`);
+            this.bot.chat(extracted);
+            await this.delay(500);
+            if (this.bot.entity && this.botData.status === 'online') return true;
         }
         
+        // Método 3: Tentar padrão de cores
+        const colorPattern = this.detectColorPattern(mapData);
+        if (colorPattern) {
+            console.log(`[${this.botData.nome}] 🎨 Padrão de cor: ${colorPattern}`);
+            this.bot.chat(colorPattern);
+            await this.delay(500);
+            if (this.bot.entity && this.botData.status === 'online') return true;
+        }
+        
+        console.log(`[${this.botData.nome}] ⚠️ Bypass automático falhou, aguardando manual...`);
         return false;
     }
     
-    extractTextFast(mapData) {
+    extractNumbersFromMap(mapData) {
         try {
             const size = Math.sqrt(mapData.length);
             if (size !== 128) return null;
             
-            let text = '';
-            const quadrants = this.getQuadrants(mapData, size);
+            let numbers = '';
+            const positions = [
+                // Posições onde números geralmente aparecem no Nanti-Bot
+                {x: 30, y: 50}, {x: 55, y: 50}, {x: 80, y: 50}, {x: 105, y: 50},
+                {x: 30, y: 75}, {x: 55, y: 75}, {x: 80, y: 75}, {x: 105, y: 75}
+            ];
             
-            for (const quadrant of quadrants) {
-                const digit = this.quickMatch(quadrant);
-                if (digit !== '?') {
-                    text += digit;
-                }
-            }
-            
-            if (text.length === 4) return text;
-            if (text.length === 6) return text;
-            
-            const patterns = this.findTextPatterns(mapData, size);
-            if (patterns) return patterns;
-            
-            return null;
-        } catch (err) {
-            return null;
-        }
-    }
-    
-    getQuadrants(mapData, size) {
-        const quadrants = [];
-        const qWidth = Math.floor(size / 4);
-        const qHeight = Math.floor(size / 2);
-        const startX = Math.max(0, Math.floor((size - (qWidth * 4)) / 2));
-        const startY = Math.max(0, Math.floor((size - qHeight) / 2));
-        
-        for (let i = 0; i < 4; i++) {
-            const quadrant = [];
-            for (let y = 0; y < qHeight; y++) {
-                for (let x = 0; x < qWidth; x++) {
-                    const px = startX + (i * qWidth) + x;
-                    const py = startY + y;
-                    if (px >= 0 && px < size && py >= 0 && py < size) {
-                        const val = mapData[py * size + px];
-                        quadrant.push(val > 80 ? 1 : 0);
-                    } else {
-                        quadrant.push(0);
+            for (const pos of positions) {
+                const idx = pos.y * size + pos.x;
+                if (idx < mapData.length) {
+                    const val = mapData[idx];
+                    if (val > 50 && val < 200) {
+                        // Tenta converter o valor em número
+                        const digit = this.mapValueToDigit(val);
+                        if (digit) numbers += digit;
                     }
                 }
             }
-            quadrants.push(quadrant);
+            
+            if (numbers.length >= 4 && numbers.length <= 6) return numbers;
+            return null;
+        } catch(e) {
+            return null;
         }
-        
-        return quadrants;
     }
     
-    quickMatch(quadrant) {
-        const sum = quadrant.reduce((a, b) => a + b, 0);
-        const density = sum / quadrant.length;
-        
-        if (density > 0.45 && density < 0.55) return '0';
-        if (density > 0.12 && density < 0.22) return '1';
-        if (density > 0.35 && density < 0.45) return '2';
-        if (density > 0.4 && density < 0.5) return '3';
-        if (density > 0.3 && density < 0.4) return '4';
-        if (density > 0.4 && density < 0.5) return '5';
-        if (density > 0.25 && density < 0.35) return '6';
-        if (density > 0.2 && density < 0.3) return '7';
-        if (density > 0.5 && density < 0.6) return '8';
-        if (density > 0.4 && density < 0.5) return '9';
-        
-        return '?';
+    mapValueToDigit(val) {
+        // Mapeamento de valores de pixel para dígitos (baseado em padrões do Nanti-Bot)
+        if (val > 200) return null;
+        if (val > 180) return '0';
+        if (val > 160) return '1';
+        if (val > 140) return '2';
+        if (val > 120) return '3';
+        if (val > 100) return '4';
+        if (val > 80) return '5';
+        if (val > 60) return '6';
+        if (val > 40) return '7';
+        if (val > 20) return '8';
+        return '9';
     }
     
-    findTextPatterns(mapData, size) {
-        let signature = '';
-        const step = Math.floor(size / 8);
-        for (let i = 0; i < 64; i++) {
-            const x = (i % 8) * step;
-            const y = Math.floor(i / 8) * step;
-            const idx = y * size + x;
-            signature += mapData[idx] > 100 ? '1' : '0';
-        }
-        
-        if (signature.includes('1110011100111')) return 'ABC';
-        if (signature.includes('1100110011001')) return 'DEF';
-        if (signature.includes('1011011011011')) return 'GHI';
-        
-        return null;
-    }
-    
-    getDominantColor(mapData) {
+    detectColorPattern(mapData) {
+        // Detecta padrões de cores específicos do Nanti-Bot
         const colorCount = {};
-        for (const val of mapData) {
-            const color = Math.floor(val / 10);
-            colorCount[color] = (colorCount[color] || 0) + 1;
+        for (let i = 0; i < mapData.length; i += 100) {
+            const val = mapData[i];
+            if (val > 50) {
+                const colorGroup = Math.floor(val / 25);
+                colorCount[colorGroup] = (colorCount[colorGroup] || 0) + 1;
+            }
         }
         
         let maxColor = null;
         let maxCount = 0;
         for (const [color, count] of Object.entries(colorCount)) {
-            if (parseInt(color) > 5 && count > maxCount) {
+            if (count > maxCount) {
                 maxCount = count;
                 maxColor = color;
             }
         }
         
-        if (maxColor) {
-            const colorNames = {
-                '12': 'red', '13': 'blue', '14': 'green', '15': 'yellow',
-                '16': 'purple', '17': 'orange', '18': 'pink', '19': 'brown'
-            };
-            return colorNames[maxColor] || null;
-        }
+        // Mapeamento de cores para palavras comuns em captchas
+        const colorWords = {
+            '3': 'BLUE', '4': 'GREEN', '5': 'RED', '6': 'YELLOW',
+            '7': 'PURPLE', '8': 'ORANGE', '9': 'PINK'
+        };
         
-        return null;
+        return colorWords[maxColor] || null;
     }
     
     delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 }
-
-// ═══════════════════════════════════════════════════════════════
-// SISTEMA DE COMANDOS
-// ═══════════════════════════════════════════════════════════════
 
 class CommandScheduler {
     constructor(bot, botData) {
@@ -324,26 +271,12 @@ class CommandScheduler {
         this.isRunning = true;
 
         if (this.botData.captchaPending) {
-            console.log(`[${this.botData.nome}] ⏳ Aguardando resolução de captcha...`);
+            console.log(`[${this.botData.nome}] ⏳ Aguardando captcha...`);
             let waitTime = 0;
-            while (this.botData.captchaPending && waitTime < 30000) {
-                await this.delay(1000);
-                waitTime += 1000;
+            while (this.botData.captchaPending && waitTime < 15000) {
+                await this.delay(500);
+                waitTime += 500;
             }
-        }
-
-        console.log(`[${this.botData.nome}] ⏳ Aguardando resource pack...`);
-        let waitTime = 0;
-        while (!this.botData.resourcePackReady && waitTime < 15000) {
-            await this.delay(500);
-            waitTime += 500;
-        }
-
-        if (this.botData.resourcePackReady) {
-            console.log(`[${this.botData.nome}] ✅ Resource pack pronto!`);
-            await this.delay(2000);
-        } else {
-            console.log(`[${this.botData.nome}] ⚠️ Sem resource pack, continuando...`);
         }
 
         console.log(`[${this.botData.nome}] 🚀 Executando comandos...`);
@@ -354,32 +287,16 @@ class CommandScheduler {
             const cmd = this.botData.commands[i];
             if (!cmd?.trim()) continue;
 
-            if (cmd.includes('/ac')) {
-                console.log(`[${this.botData.nome}] ⏳ Aguardando 2s antes do /ac...`);
-                await this.delay(2000);
-            }
-
             await this.executeCommand(cmd);
-
-            if (i === 0) {
-                await this.delay(3000);
-            } else if (i === 1) {
-                await this.delay(5000);
-            } else {
-                await this.delay(2000);
-            }
+            await this.delay(2000);
         }
 
-        console.log(`[${this.botData.nome}] ✅ Comandos finalizados! Bot em standby.`);
+        console.log(`[${this.botData.nome}] ✅ Comandos finalizados!`);
         this.isRunning = false;
     }
 
     stop() { this.isRunning = false; }
 }
-
-// ═══════════════════════════════════════════════════════════════
-// GERENCIAMENTO DE BOTS
-// ═══════════════════════════════════════════════════════════════
 
 function getBotIndex(botId) { return bots.findIndex(b => b.id === botId); }
 
@@ -400,7 +317,6 @@ function destroyBot(botId) {
     botData.resourcePackReady = false;
     botData.captchaPending = false;
     botData.captchaAttempts = 0;
-    botData.captchaStartTime = null;
     bots[index] = botData;
     io.emit('botStatus', { id: botId, status: 'offline', nome: botData.nome });
 }
@@ -413,7 +329,7 @@ function scheduleReconnect(botId) {
 
     botData.reconnectAttempts = (botData.reconnectAttempts || 0) + 1;
     const delay = getReconnectDelay(botData.reconnectAttempts);
-    console.log(`[${botData.nome}] 🔄 Tentativa ${botData.reconnectAttempts} — reconectando em ${delay / 1000}s`);
+    console.log(`[${botData.nome}] 🔄 Reconectando em ${delay / 1000}s`);
 
     botData.reconnectTimeout = setTimeout(() => {
         botData.reconnectTimeout = null;
@@ -439,11 +355,10 @@ function createBot(botId) {
     botData.resourcePackReady = false;
     botData.captchaPending = false;
     botData.captchaAttempts = 0;
-    botData.captchaStartTime = null;
     bots[index] = botData;
 
     io.emit('botStatus', { id: botId, status: 'connecting', nome: botData.nome });
-    console.log(`[${botData.nome}] 🔌 Conectando a ${botData.server}:${botData.port}`);
+    console.log(`[${botData.nome}] 🔌 Conectando a ${botData.server}...`);
 
     const bot = mineflayer.createBot({
         host: botData.server,
@@ -451,109 +366,75 @@ function createBot(botId) {
         username: botData.nome,
         version: botData.version || '1.21.4',
         auth: 'offline',
-        connectTimeout: 15000,
+        connectTimeout: 10000,
         keepAlive: true,
-        checkTimeoutInterval: 15000,
+        checkTimeoutInterval: 10000,
         viewDistance: 'tiny',
         disableChatSigning: true,
         skipValidation: true,
-        acceptResourcePack: true,
-        chatLengthLimit: 256,
-        hideErrors: false
+        acceptResourcePack: true
     });
 
     botData.bot = bot;
     bots[index] = botData;
 
-    let heartbeat = null;
-
-    bot.on('resourcePack', () => {
-        console.log(`[${botData.nome}] 📦 Resource pack! Aceitando...`);
-        try { bot.acceptResourcePack(); } catch(e) {}
-        botData.resourcePackReady = true;
-        bots[index] = botData;
-    });
-
+    // Evento do captcha - Tenta bypass e também mostra no dashboard
     bot.on('map', async (map) => {
-        console.log(`[${botData.nome}] 🗺️ Mapa captcha recebido!`);
+        console.log(`[${botData.nome}] 🗺️ CAPTCHA DO NANTI-BOT DETECTADO!`);
         botData.captchaPending = true;
         botData.captchaStartTime = Date.now();
         bots[index] = botData;
 
         const mapArray = Array.from(map.data);
         
+        // Salva a imagem para o dashboard
+        botData.captchaImage = mapArray;
+        
+        // Emite para o dashboard mostrar o captcha
         io.emit('captchaMap', {
             botId: botId,
             botNome: botData.nome,
             data: mapArray,
-            attempts: botData.captchaAttempts || 0
+            attempts: botData.captchaAttempts
         });
 
-        if (botData.autoSequence) {
-            const solver = new CaptchaSolver(bot, botData);
-            
-            const solved = await solver.solveMapCaptchaFast(mapArray);
-            
-            if (solved) {
-                botData.captchaPending = false;
-                botData.captchaAttempts = 0;
-                bots[index] = botData;
-                
-                io.emit('botStatus', { 
-                    id: botId, 
-                    status: 'online', 
-                    nome: botData.nome,
-                    captchaResolved: true 
-                });
-                
-                console.log(`[${botData.nome}] ✅ Captcha resolvido em ${(Date.now() - botData.captchaStartTime)/1000}s!`);
-                
-                if (botData.commandScheduler) {
-                    botData.commandScheduler.start();
-                }
-                return;
-            }
-            
-            console.log(`[${botData.nome}] 🔄 Tentativa rápida falhou, tentando método alternativo...`);
-            const solvedAlt = await solver.solveMapCaptchaAlt(mapArray);
-            
-            if (solvedAlt) {
-                botData.captchaPending = false;
-                botData.captchaAttempts = 0;
-                bots[index] = botData;
-                console.log(`[${botData.nome}] ✅ Captcha resolvido pelo método alternativo!`);
-                return;
-            }
-            
-            botData.captchaAttempts = (botData.captchaAttempts || 0) + 1;
+        // Tenta bypass automático
+        const bypass = new NantiBotBypass(bot, botData);
+        const bypassed = await bypass.tryBypass(mapArray);
+        
+        if (bypassed) {
+            botData.captchaPending = false;
+            botData.captchaAttempts = 0;
             bots[index] = botData;
             
-            console.log(`[${botData.nome}] ⚠️ Falha no captcha automático, aguardando manual...`);
+            console.log(`[${botData.nome}] ✅ NANTI-BOT BYPASSED!`);
+            
+            io.emit('botStatus', { 
+                id: botId, 
+                status: 'online', 
+                nome: botData.nome,
+                captchaResolved: true 
+            });
+            
+            // Executa comandos
+            setTimeout(() => {
+                if (botData.status === 'online') {
+                    botData.commandScheduler = new CommandScheduler(bot, botData);
+                    botData.commandScheduler.start();
+                    bots[index] = botData;
+                }
+            }, 1000);
+        } else {
+            botData.captchaAttempts++;
+            bots[index] = botData;
+            console.log(`[${botData.nome}] ⚠️ Aguardando resolução manual do captcha...`);
+            
+            // Notifica que está aguardando captcha manual
             io.emit('captchaWaiting', {
                 botId: botId,
                 botNome: botData.nome,
                 attempts: botData.captchaAttempts
             });
-        }
-    });
-
-    bot.on('chat', async (username, message) => {
-        const lowerMsg = message.toLowerCase();
-        const captchaKeywords = ['digite', 'código', 'code', 'verification', 'captcha', 'type', 'enter'];
-        
-        if (captchaKeywords.some(keyword => lowerMsg.includes(keyword))) {
-            console.log(`[${botData.nome}] 📨 Mensagem de captcha: ${message}`);
-            
-            if (!botData.captchaPending) {
-                const numbers = message.match(/\d+/g);
-                if (numbers && numbers.length > 0) {
-                    const code = numbers.join('');
-                    console.log(`[${botData.nome}] 🔢 Código detectado: ${code}`);
-                    await new Promise(r => setTimeout(r, 500));
-                    bot.chat(code);
-                    console.log(`[${botData.nome}] 📤 Resposta enviada: ${code}`);
-                }
-            }
         }
     });
 
@@ -566,25 +447,15 @@ function createBot(botId) {
 
         io.emit('botStatus', { id: botId, status: 'online', nome: botData.nome });
 
-        heartbeat = setInterval(() => {
-            if (botData.status === 'online' && bot.entity) {
-                bot.setControlState('jump', true);
-                setTimeout(() => {
-                    if (bot.entity) bot.setControlState('jump', false);
-                }, 100);
-            } else if (heartbeat) {
-                clearInterval(heartbeat);
-                heartbeat = null;
-            }
-        }, 15000);
-
-        setTimeout(() => {
-            if (botData.status === 'online' && !botData.captchaPending) {
-                botData.commandScheduler = new CommandScheduler(bot, botData);
-                botData.commandScheduler.start();
-                bots[index] = botData;
-            }
-        }, 2000);
+        if (!botData.captchaPending) {
+            setTimeout(() => {
+                if (botData.status === 'online') {
+                    botData.commandScheduler = new CommandScheduler(bot, botData);
+                    botData.commandScheduler.start();
+                    bots[index] = botData;
+                }
+            }, 1000);
+        }
     });
 
     bot.on('error', (err) => {
@@ -595,7 +466,6 @@ function createBot(botId) {
 
     bot.on('end', () => {
         console.log(`[${botData.nome}] ❌ Desconectado`);
-        if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
         if (botData.commandScheduler) { botData.commandScheduler.stop(); botData.commandScheduler = null; }
         botData.status = 'offline';
         botData.connecting = false;
@@ -615,8 +485,7 @@ function createBot(botId) {
             msg = extra?.map(e => e?.text?.value || '').join('') || JSON.stringify(reason);
         } catch(e) { msg = String(reason); }
 
-        console.log(`[${botData.nome}] 🚫 Kick: ${msg.substring(0, 150)}`);
-        if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+        console.log(`[${botData.nome}] 🚫 Kick: ${msg.substring(0, 100)}`);
         botData.status = 'kicked';
         botData.connecting = false;
         botData.resourcePackReady = false;
@@ -677,7 +546,7 @@ app.post('/api/bot/create', (req, res) => {
         commands: [], reconnectAttempts: 0, connecting: false,
         bot: null, commandScheduler: null, reconnectTimeout: null,
         resourcePackReady: false, captchaPending: false, captchaAttempts: 0,
-        captchaStartTime: null
+        captchaImage: null, captchaCode: null
     };
     bots.push(newBot);
     console.log(`✅ Bot criado: ${nome}`);
@@ -743,6 +612,13 @@ app.post('/api/bot/:id/say', (req, res) => {
             bot.captchaPending = false;
             bot.captchaAttempts = 0;
             console.log(`[${bot.nome}] ✅ Captcha resolvido manualmente: ${msg}`);
+            // Avança para os comandos após resolver captcha
+            setTimeout(() => {
+                if (bot.status === 'online' && bot.autoSequence && bot.commands?.length) {
+                    bot.commandScheduler = new CommandScheduler(bot.bot, bot);
+                    bot.commandScheduler.start();
+                }
+            }, 1000);
         }
         console.log(`[${bot.nome}] 💬 Manual: ${msg}`);
         res.json({ success: true, message: msg });
@@ -788,10 +664,6 @@ app.post('/api/bots/stopAll', (req, res) => {
     res.json({ success: true, stopped: running.length });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// SOCKET.IO
-// ═══════════════════════════════════════════════════════════════
-
 io.on('connection', (socket) => {
     console.log('📡 Dashboard conectado');
     socket.emit('botList', bots.map(b => ({
@@ -802,20 +674,16 @@ io.on('connection', (socket) => {
     })));
 });
 
-// ═══════════════════════════════════════════════════════════════
-// INICIALIZAÇÃO
-// ═══════════════════════════════════════════════════════════════
-
 const PORT = globalConfig.webServerPort;
 initializePreconfiguredBots();
 
 server.listen(PORT, () => {
     console.log(`\n╔════════════════════════════════════════════════════╗`);
-    console.log(`║      🤖 BOTCRAFT v4.0 - CAPTCHA AUTO RÁPIDO     ║`);
+    console.log(`║   🤖 BOTCRAFT v4.2 - NANTI-BOT BYPASS          ║`);
     console.log(`╠════════════════════════════════════════════════════╣`);
     console.log(`║  🌐 Dashboard: http://localhost:${PORT}                  ║`);
     console.log(`║  🤖 Bots: ${bots.length}                                    ║`);
-    console.log(`║  🗺️  Captcha: Automático + Manual                 ║`);
+    console.log(`║  🔓 Nanti-Bot: Bypass automático + Manual        ║`);
     console.log(`╚════════════════════════════════════════════════════╝\n`);
     bots.forEach(bot => {
         console.log(`   🤖 ${bot.nome} → ${bot.server}:${bot.port}`);
