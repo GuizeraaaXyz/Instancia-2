@@ -1,19 +1,45 @@
 {
-  "name": "botcraft-manager-pro",
-  "version": "3.0.0",
-  "description": "Sistema completo de gerenciamento de bots Minecraft com proxy rotation (3 bots por proxy)",
+  "name": "botcraft-manager",
+  "version": "4.0.0",
+  "description": "BotCraft Manager - Sistema de gerenciamento de bots Minecraft com captcha automático",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "nodemon server.js",
+    "pm2:start": "pm2 start server.js --name botcraft",
+    "pm2:stop": "pm2 stop botcraft",
+    "pm2:restart": "pm2 restart botcraft",
+    "pm2:logs": "pm2 logs botcraft"
   },
+  "keywords": [
+    "minecraft",
+    "bot",
+    "mineflayer",
+    "captcha",
+    "automation",
+    "dashboard"
+  ],
+  "author": "BotCraft Team",
+  "license": "MIT",
   "dependencies": {
-    "dotenv": "^16.3.1",
-    "express": "^4.22.2",
-    "https-proxy-agent": "^9.0.0",
-    "mineflayer": "^4.37.1",
-    "socket.io": "^4.8.3",
-    "socks-proxy-agent": "^8.0.5"
-  }
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "mineflayer": "^4.14.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/botcraft-manager"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/botcraft-manager/issues"
+  },
+  "homepage": "https://github.com/yourusername/botcraft-manager#readme"
 }
