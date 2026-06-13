@@ -1,0 +1,19 @@
+{
+  "name": "botcraft-manager-pro",
+  "version": "3.0.0",
+  "description": "Sistema completo de gerenciamento de bots Minecraft com proxy rotation (3 bots por proxy)",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "express": "^4.22.2",
+    "https-proxy-agent": "^9.0.0",
+    "mineflayer": "^4.37.1",
+    "socket.io": "^4.8.3",
+    "socks-proxy-agent": "^8.0.5"
+  }
+}
